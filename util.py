@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 from itertools import product
@@ -19,16 +20,15 @@ M_UWT_OFFSET = 8
 
 
 def load_waves_rom():
-    with open("mw_waves.pickle", "rb") as f:
-        waves_rom_dict = pickle.load(f)
+    with open("m_ppg_waves.json") as f:
+        waves_json = {int(k): np.array(v) for k, v in json.load(f).items()}
 
-    waves_rom_dict = {k: v for k, v in waves_rom_dict.items() if k < MWAVE_UW_OFFSET}
+    waves_rom_dict = {k: v for k, v in waves_json.items() if k < MWAVE_UW_OFFSET}
     return waves_rom_dict
 
 
 def convert(data, n):
     assert len(data) == n
-    accum = 0
     for i, x in enumerate(data):
         assert x & 0xF0 == 0
     return sum(((x & 0xF) << (4 * (n - 1 - i))) for i, x in enumerate(data))
@@ -205,7 +205,10 @@ def plot_uwts(wavetables_interpolated, wavetables_user, fn):
 
             f, axes = plt.subplots(8, 8, figsize=(15.2, 15))
 
-            f.suptitle(f"User Wavetable {wt_idx}", x=0.1, y=.92, horizontalalignment='left', verticalalignment='top',
+            f.suptitle(f"wtslot{wt_idx + M_UWT_OFFSET :02d}",
+                       x=0.1, y=.92,
+                       horizontalalignment='left',
+                       verticalalignment='top',
                        fontsize=15)
 
             interp_idxs = np.where(data_uwt == 0xFFFF)[0]
