@@ -1,8 +1,8 @@
 import glob
 
-from util import *
+from util import process_cart_dump
 
-sysex_fns = glob.glob("C:\share\presets\m\MW1 SOUND CARDS\SOUND CARDS\*\*.syx")
+sysex_fns = glob.glob(r"C:\share\presets\m\MW1 SOUND CARDS\SOUND CARDS\*\*.syx")
 
 for fn in filter(lambda x: not x.endswith("_M"), sysex_fns):
     print(f"\nProcessing '{fn}'.")
