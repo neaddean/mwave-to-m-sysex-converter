@@ -1,6 +1,5 @@
 import json
 import os
-import pickle
 from itertools import product
 
 import numpy as np
@@ -73,6 +72,7 @@ def parse_sections(fn):
 def extract_programs(sections):
     data_bprd = sections[BPRD]
 
+    # TODO vectorize
     programs = []
     for i in range(64):
         data = data_bprd[180 * i: 180 * (i + 1)]

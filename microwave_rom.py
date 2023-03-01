@@ -28,9 +28,11 @@ waves_raw = waves_raw.astype(int) - 128
 assert not np.any(waves_raw < -128)
 assert not np.any(waves_raw > 127)
 
-waves = {}
-for i in range(300):
-    waves[i + 122 * (i > 245)] = waves_raw[i]
+# waves = {}
+# for i in range(300):
+#     waves[i + 122 * (i > 245)] = waves_raw[i]
+#
+waves = {i + 122 * (i > 245): waves_raw[i] for i in range(300)}
 
 waves_ser = {k: v.tolist() for k, v in waves.items()}
 with open("m_ppg_waves.json", "w") as f:
