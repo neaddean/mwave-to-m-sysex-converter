@@ -1,5 +1,6 @@
 import json
 import os
+import traceback
 from itertools import product
 
 import numpy as np
@@ -14,7 +15,8 @@ BPRD = 0x50
 UWVD = 0x53
 
 MWAVE_UW_OFFSET = 246
-MWAVE_UWT_OFFSET = 32
+MWAVE_UWT_OFFSET = 33
+MWAVE_NUM_UWT = 11
 M_UWT_OFFSET = 8
 
 
@@ -70,22 +72,11 @@ def parse_sections(fn):
 
 
 def extract_programs(sections):
-    data_bprd = sections[BPRD]
+    data_bprd = np.frombuffer(sections[BPRD], dtype=np.uint8, count=64 * 180).reshape((64, 180))
+    names = [sanitize_string(s.decode()) for s in data_bprd[:, 153:169].view('S16').squeeze()]
+    wt_idxs = [x - MWAVE_UWT_OFFSET if x > MWAVE_UWT_OFFSET else None for x in data_bprd[:, 28]]
 
-    # TODO vectorize
-    programs = []
-    for i in range(64):
-        data = data_bprd[180 * i: 180 * (i + 1)]
-        # for some reason, some names end with File Separator
-        name = sanitize_string(data[153:169].decode())
-        wt_idx = data[28] - MWAVE_UWT_OFFSET - 1
-
-        if wt_idx >= 0:
-            programs.append((i, name, wt_idx))
-        else:
-            programs.append((i, name, None))
-
-    return programs
+    return [(i, n, w) for i, (n, w) in enumerate(zip(names, wt_idxs))]
 
 
 def extract_waves(sections):
@@ -95,7 +86,7 @@ def extract_waves(sections):
 
     user_wavetables = {}
 
-    for i_wt in range(11):
+    for i_wt in range(MWAVE_NUM_UWT):
         user_wavetable = []
         wt_start_idx = 0x100 * i_wt
         for i_w in range(64):
@@ -223,7 +214,7 @@ def plot_uwts(wavetables_interpolated, wavetables_user, fn):
 
                 ax.plot(data)
 
-                ax.set_title(f"Wave {i}", c="green" if i not in interp_idxs else "gray")
+                ax.set_title(f"Wave {i}", c="darkgreen" if i not in interp_idxs else "gray")
 
                 ax.set_xlim(-5, 132)
                 ax.set_ylim(-133, 132)
@@ -275,5 +266,6 @@ def process_cart_dump(fn):
             plot_uwts(wavetables_interpolated=wavetables_interpolated, wavetables_user=wavetables_user, fn=pdf_fn)
     except Exception as e:
         with open(os.path.join(out_dir, "summary.txt"), "w") as f:
-            f.write("Error parsing cartridge dump.")
+            f.write("Exception while parsing cartridge dump:\n")
+            f.write(traceback.format_exc())
         raise e
