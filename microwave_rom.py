@@ -1,9 +1,13 @@
+"""
+Adaption of https://jacajack.github.io/music/2019/12/10/PPG-EPROM.html for the Waldorf Microwave.
+"""
+
 import json
 
 import numpy as np
 
-fn_upper = r"C:\share\presets\m\microwave\Waldorf_microWAVE_V2.0\microWave_2.0_H.bin"
-fn_lower = r"C:\share\presets\m\microwave\Waldorf_microWAVE_V2.0\microWave_2.0_L.bin"
+fn_upper = r"Waldorf_microWAVE_V2.0\microWave_2.0_H.bin"
+fn_lower = r"Waldorf_microWAVE_V2.0\microWave_2.0_L.bin"
 
 with open(fn_upper, "rb") as f:
     data_upper = f.read()

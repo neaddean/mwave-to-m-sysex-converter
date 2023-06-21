@@ -11,12 +11,18 @@ from scipy.interpolate import interp1d
 sysex_header = bytes.fromhex("F0 3E 00 00")
 sysex_term = bytes.fromhex("F7")
 
+# IDM for different dump types
 BPRD = 0x50
 UWVD = 0x53
 
+# microwave user waves offset into table
 MWAVE_UW_OFFSET = 246
+# microwave user wavetables into wave control tables
+# TODO - i forgot why this is not 32 or 31
 MWAVE_UWT_OFFSET = 33
+# number of user wavetables on a microwave
 MWAVE_NUM_UWT = 11
+# offset in the M where the wavetable will point for the OSC
 M_UWT_OFFSET = 8
 
 
@@ -35,10 +41,12 @@ def convert(data, n):
     return sum(((x & 0xF) << (4 * (n - 1 - i))) for i, x in enumerate(data))
 
 
+# noinspection PyPep8Naming
 def WORD(data):
     return convert(data, 4)
 
 
+# noinspection PyPep8Naming
 def BYTE(data):
     return convert(data, 2)
 
@@ -65,8 +73,15 @@ def parse_sections(fn):
         sections[idm] = data[start_idx:end_idx]
         data = data[end_idx:]
 
-    assert len(sections[BPRD]) == 11527
-    assert len(sections[UWVD]) == 10887
+    try:
+        assert len(sections[BPRD]) == 11527
+    except KeyError:
+        raise ValueError("No BPRD section found!")
+
+    try:
+        assert len(sections[UWVD]) == 10887
+    except KeyError:
+        raise ValueError("No UWVD section found!")
 
     return sections
 
@@ -74,9 +89,11 @@ def parse_sections(fn):
 def extract_programs(sections):
     data_bprd = np.frombuffer(sections[BPRD], dtype=np.uint8, count=64 * 180).reshape((64, 180))
     names = [sanitize_string(s.decode()) for s in data_bprd[:, 153:169].view('S16').squeeze()]
-    wt_idxs = [x - MWAVE_UWT_OFFSET if x > MWAVE_UWT_OFFSET else None for x in data_bprd[:, 28]]
+    uwt_idxs = [x - MWAVE_UWT_OFFSET
+                if (MWAVE_UWT_OFFSET + MWAVE_NUM_UWT) > x > MWAVE_UWT_OFFSET else None
+                for x in data_bprd[:, 28]]
 
-    return [(i, n, w) for i, (n, w) in enumerate(zip(names, wt_idxs))]
+    return [(i, n, w) for i, (n, w) in enumerate(zip(names, uwt_idxs))]
 
 
 def extract_waves(sections):
@@ -93,6 +110,7 @@ def extract_waves(sections):
             wt_word_idx = wt_start_idx + i_w * 4
             wave_idx = WORD(data_wavetables[wt_word_idx: wt_word_idx + 4])
             if 307 <= wave_idx <= 505:
+                # should never execute!
                 breakpoint()
             user_wavetable.append(wave_idx)
         user_wavetables[i_wt] = np.array(user_wavetable)
@@ -106,9 +124,7 @@ def extract_waves(sections):
             w_word_idx = w_start_idx + 2 * i_d
             user_wave.append(BYTE(data_waves[w_word_idx: w_word_idx + 2]))
         user_wave = np.array(user_wave) - 128
-        user_waves[i_w + MWAVE_UW_OFFSET] = np.concatenate(
-            [user_wave, -user_wave[::-1]]
-        )
+        user_waves[i_w + MWAVE_UW_OFFSET] = np.concatenate([user_wave, -user_wave[::-1]])
 
     return user_wavetables, user_waves
 
@@ -137,7 +153,7 @@ def interpolate_uwts(wavetables_user, waves_all, used_uwts=None):
     return wavetables_interpolated
 
 
-def save_m_wavetable(wavetables_interpolated, wt_dir, save_only=None):
+def save_m_wavetable(wavetables_interpolated, wt_dir, save_only=None, *, int_interp=None):
     for user_wt_idx, user_wt in wavetables_interpolated.items():
         if save_only is not None and user_wt_idx not in save_only:
             continue
@@ -147,15 +163,23 @@ def save_m_wavetable(wavetables_interpolated, wt_dir, save_only=None):
         m_wt = []
 
         for row in user_wt:
-            # performs interpolation from https://gist.github.com/endolith/1297227#file-sinc_interp-py
             x = row
-            s = np.arange(len(x))
-            u = np.arange(2 * len(x)) / 2
-            sinc_conv = np.tile(u, (len(s), 1)) - np.tile(s[:, np.newaxis], (1, len(u)))
+            assert len(x) == 128
 
-            upsampled = np.dot(x, np.sinc(sinc_conv)).round(0).astype(int)
-            upsampled = (upsampled + 128).clip(0, 255)
-            m_wt += list(upsampled)
+            if int_interp is not None:
+                assert int_interp == 2
+                assert int(int_interp) == int_interp
+                int_interp = int(int_interp)
+
+                # performs interpolation from https://gist.github.com/endolith/1297227#file-sinc_interp-py
+                s = np.arange(len(x))
+                u = np.arange(int_interp * len(x)) / int_interp
+                sinc_conv = np.tile(u, (len(s), 1)) - np.tile(s[:, np.newaxis], (1, len(u)))
+
+                x = np.dot(x, np.sinc(sinc_conv)).round(0).astype(int)
+            x = (x + 128).clip(0, 255)
+
+            m_wt += list(x)
 
         with open(fn, "wb") as f:
             f.write(bytes(m_wt))
@@ -169,7 +193,7 @@ def bprd_to_file(sections, fn):
 def summary(programs, mwave_fn, out_dir):
     output = ""
 
-    output += f"Microwave I cartidge dump file : {mwave_fn}\n"
+    output += f"Microwave I cartridge dump file : {mwave_fn}\n"
     output += f"M output directory             : {out_dir}\n"
     output += "\n"
 
@@ -231,7 +255,7 @@ def plot_uwts(wavetables_interpolated, wavetables_user, fn):
             plt.close(f)
 
 
-def process_cart_dump(fn):
+def process_cart_dump(fn, save_errors=False, make_plots=False):
     out_dir = os.path.join(os.path.dirname(fn), os.path.basename(fn)[:-4] + " M", "")
     m_fn = os.path.join(out_dir, os.path.basename(fn)[:-4] + "__SINGLE_BANK_M")
 
@@ -255,17 +279,25 @@ def process_cart_dump(fn):
         assert len(wavetables_interpolated) == len(used_uwts)
 
         bprd_to_file(sections, m_fn)
-        save_m_wavetable(wavetables_interpolated, out_dir, used_uwts)
+        save_m_wavetable(wavetables_interpolated, out_dir, save_only=used_uwts, int_interp=None)
 
         with open(os.path.join(out_dir, "summary.txt"), "w") as f:
             f.write(summary(programs, fn, out_dir))
 
-        if wavetables_interpolated:
+        if wavetables_interpolated and make_plots:
             pdf_fn = f'{os.path.basename(fn)[:-4]} UWT.pdf'
             pdf_fn = os.path.join(out_dir, pdf_fn)
-            plot_uwts(wavetables_interpolated=wavetables_interpolated, wavetables_user=wavetables_user, fn=pdf_fn)
+            plot_uwts(wavetables_interpolated=wavetables_interpolated,
+                      wavetables_user=wavetables_user,
+                      fn=pdf_fn)
     except Exception as e:
-        with open(os.path.join(out_dir, "summary.txt"), "w") as f:
-            f.write("Exception while parsing cartridge dump:\n")
-            f.write(traceback.format_exc())
+        if save_errors:
+            with open(os.path.join(out_dir, "summary.txt"), "w") as f:
+                f.write("Exception while parsing cartridge dump:\n")
+                f.write(traceback.format_exc())
+        else:
+            try:
+                os.rmdir(out_dir)
+            except Exception:
+                pass
         raise e
